@@ -3,7 +3,7 @@ import geoip2.webservice
 from geoip2.errors import AddressNotFoundError
 
 
-from flask import request, _app_ctx_stack
+from flask import request, _request_ctx_stack
 
 
 def get_remote_addr():
@@ -16,7 +16,7 @@ def get_remote_addr():
 
 
 def _lookup_remote_addr(method, raise_on_not_found=True, **kwargs):
-    ctx = _app_ctx_stack.top
+    ctx = _request_ctx_stack.top
     if ctx is not None:
         if not hasattr(ctx, '_geoip2'):
             addr = get_remote_addr()
