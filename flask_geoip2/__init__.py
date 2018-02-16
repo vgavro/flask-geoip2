@@ -1,3 +1,5 @@
+from functools import partial
+
 import geoip2.database
 import geoip2.webservice
 from geoip2.errors import AddressNotFoundError
@@ -11,7 +13,7 @@ def get_remote_addr():
     if address is not None:
         # An 'X-Forwarded-For' header includes a comma separated list of the
         # addresses, the first address being the actual remote address.
-        address = address.encode('utf-8').split(b',')[0].strip()
+        address = address.split(',')[0].strip()
     return address
 
 
@@ -22,7 +24,7 @@ def _lookup_remote_addr(method, raise_on_not_found=True, **kwargs):
             addr = get_remote_addr()
             try:
                 ctx._geoip2 = method(addr, **kwargs)
-            except response.AddressNotFoundError:
+            except AddressNotFoundError:
                 ctx._geoip2 = None
                 if raise_on_not_found:
                     raise
@@ -69,7 +71,7 @@ class GeoIP2(object):
         for method_name in ('country', 'city', 'anonymous_ip', 'connection_type', 'domain',
                             'enterprise', 'isp'):
             setattr(instance, '{}_remote_addr'.format(method_name),
-                    lambda **kw: _lookup_remote_addr(instance.country, **kw))
+                    partial(_lookup_remote_addr, getattr(instance, method_name)))
 
         app.extensions['geoip2'] = instance
         return instance
