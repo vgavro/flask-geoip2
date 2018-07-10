@@ -8,20 +8,18 @@ from geoip2.errors import AddressNotFoundError
 from flask import request, _request_ctx_stack
 
 
-def get_remote_addr():
-    address = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if address is not None:
-        # An 'X-Forwarded-For' header includes a comma separated list of the
-        # addresses, the first address being the actual remote address.
-        address = address.split(',')[0].strip()
-    return address
+def get_remote_addr(num_proxies=1):
+    # access_route is based on X-Forwarded-For and fallback to remote_addr
+    if len(request.access_route) >= num_proxies:
+        return request.access_route[-num_proxies]
+    return request.remote_addr
 
 
-def _lookup_remote_addr(method, raise_on_not_found=True, **kwargs):
+def _lookup_remote_addr(method, num_proxies=1, raise_on_not_found=True, **kwargs):
     ctx = _request_ctx_stack.top
     if ctx is not None:
         if not hasattr(ctx, '_geoip2'):
-            addr = get_remote_addr()
+            addr = get_remote_addr(num_proxies)
             try:
                 ctx._geoip2 = method(addr, **kwargs)
             except AddressNotFoundError:
@@ -58,6 +56,9 @@ class GeoIP2(object):
         ws_license_key = ws_license_key or get_config('WS_LICENSE_KEY')
         assert (db_path or (ws_user_id and ws_license_key)), 'Please specify geoip2 settings'
 
+        # Custom setting to proper determine remote addr based on X-Forwarded-For
+        num_proxies = app.config.get('FLASK_ACCESS_ROUTE_NUM_PROXIES', 1)
+
         if db_path:
             instance = geoip2.database.Reader(db_path, locales=get_config('DB_LOCALES'),
                                               mode=get_config('DB_MODE', geoip2.database.MODE_AUTO))
@@ -65,13 +66,13 @@ class GeoIP2(object):
             instance = geoip2.webservice.Client(ws_user_id, ws_license_key)
 
         instance.AddressNotFoundError = AddressNotFoundError
-        instance.get_remote_addr = get_remote_addr
+        instance.get_remote_addr = partial(get_remote_addr, num_proxies)
 
         # setting wrappers for request remote addr
         for method_name in ('country', 'city', 'anonymous_ip', 'connection_type', 'domain',
                             'enterprise', 'isp'):
             setattr(instance, '{}_remote_addr'.format(method_name),
-                    partial(_lookup_remote_addr, getattr(instance, method_name)))
+                    partial(_lookup_remote_addr, getattr(instance, method_name), num_proxies))
 
         app.extensions['geoip2'] = instance
         return instance
